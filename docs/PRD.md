@@ -140,3 +140,10 @@ during the demo.
   QA. Not verified end-to-end with Anthropic due to no API key being
   available during development — the provider interface and prompts
   are ready to test with one.
+- **Artifact tag closure reliability** — llama3.2:3b does not always
+  close the `</artifact>` tag, causing the artifact extraction to
+  miss the content (frontend now strips a dangling open tag as a
+  fallback so raw markup never leaks into the chat view; the
+  content simply won't populate the artifact viewer in that case).
+  A stronger model (Anthropic) or a stricter generation grammar
+  would resolve this fully.

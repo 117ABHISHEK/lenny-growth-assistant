@@ -4,8 +4,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/hooks/useChatStream";
 
+function stripArtifactTags(text: string): string {
+  // Handles properly closed artifact blocks
+  let cleaned = text.replace(
+    /<artifact type="(markdown|html)" title="([^"]*)">([\s\S]*?)<\/artifact>/g,
+    "*[Artifact generated — see viewer on the right]*"
+  );
+  // Handles a dangling/unclosed opening tag if the model forgot to close it
+  cleaned = cleaned.replace(/<artifact type="(markdown|html)" title="([^"]*)">/g, "");
+  return cleaned;
+}
+
 export function MessageItem({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const displayContent = isUser ? message.content : stripArtifactTags(message.content);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -18,7 +30,7 @@ export function MessageItem({ message }: { message: ChatMessage }) {
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
           <div className="prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || "…"}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent || "…"}</ReactMarkdown>
           </div>
         )}
 
