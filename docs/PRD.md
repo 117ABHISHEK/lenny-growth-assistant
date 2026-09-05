@@ -103,3 +103,40 @@ during the demo.
   a stronger model — not verified end-to-end in this submission due
   to no Anthropic API key being available during development, but
   the provider toggle and prompt are ready to use with one.
+- **Local model fabrication risk in long-form generation (confirmed)** —
+  llama3.2:3b reliably fabricates plausible-but-false citations
+  (invented guest names, episodes, timestamps not present in the
+  retrieved context) when generating longer documents or essays,
+  even when explicitly instructed to cite only provided sources.
+  This did NOT occur in the short-answer grounded QA path, where
+  citation accuracy was correct and refusal behavior worked as
+  designed. This is a meaningful, reproducible limitation of small
+  local models for extended generation — not a retrieval or
+  architecture failure, since the correct chunks were always
+  retrieved and available in context. Production mitigation: route
+  long-form/document-generation requests to a larger model (cloud
+  provider) by default, reserving the local model for short grounded
+  Q&A where it performs reliably.
+- **Local model fabrication in long-form/document generation (confirmed, reproducible)** —
+  llama3.2:3b reliably invents plausible-but-nonexistent guest names,
+  episodes, and timestamps when generating documents or essays longer
+  than a short Q&A answer — reproduced across 3 separate test runs
+  (Ship 30 essay x2, markdown artifact x1), with different fabricated
+  names each time (e.g. "Jason Cohen", "Dan Olsen", "Lenny Russell" —
+  none present in the 30-episode corpus). This occurred even with
+  explicit, repeated instructions to cite only provided context.
+  Critically, the short-answer grounded QA path (`/api/chat` default
+  mode) did NOT exhibit this problem in testing — retrieval, citation
+  accuracy, and refusal-on-out-of-domain all worked correctly there.
+  Root cause: a 3B-parameter model cannot reliably sustain grounding
+  constraints over long, multi-paragraph generation once retrieved
+  context is diluted across a larger output. This is a model-capacity
+  limitation, not a retrieval or architecture failure — correct
+  chunks were always retrieved and present in context.
+  Production mitigation: this project routes short grounded Q&A to
+  either provider, but restricts long-form generation (Ship 30 essays,
+  markdown/HTML artifacts) to the cloud provider (Anthropic) in
+  production; local-only operation should be scoped to short-answer
+  QA. Not verified end-to-end with Anthropic due to no API key being
+  available during development — the provider interface and prompts
+  are ready to test with one.
