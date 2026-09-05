@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -6,14 +7,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import get_settings
-from app.models.db_models import Message
+from app.models.db_models import Message, Artifact
 from app.models.schemas import ChatRequest
 from app.rag.retriever import TranscriptRetriever
 from app.rag.embeddings import embed_text
 from app.providers.ollama_provider import OllamaProvider
 from app.providers.cloud_provider import AnthropicProvider
-from app.skills.artifact_generator import GROUNDED_SYSTEM_PROMPT, build_context_block
+from app.skills.artifact_generator import (
+    GROUNDED_SYSTEM_PROMPT,
+    ARTIFACT_INSTRUCTION,
+    build_context_block,
+    extract_artifacts,
+    strip_artifact_tags,
+    flag_unverified_citations,
+)
 from app.skills.ship30_writer import build_ship30_prompt
+
+logger = logging.getLogger("lenny_assistant")
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -33,7 +43,6 @@ async def stream_chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     retriever = TranscriptRetriever(db)
     query_vector = await embed_text(req.message)
-    # Ship30 essays benefit from more context chunks than a quick Q&A
     top_k = 8 if req.mode == "ship30" else 5
     chunks = await retriever.retrieve_relevant_chunks(query_vector, top_k=top_k)
     context = build_context_block(chunks)
@@ -43,7 +52,9 @@ async def stream_chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         user_content = build_ship30_prompt(req.message, context)
         llm_messages = [{"role": "user", "content": user_content}]
     else:
-        system_prompt = GROUNDED_SYSTEM_PROMPT.format(context=context)
+        system_prompt = GROUNDED_SYSTEM_PROMPT.format(
+            context=context, artifact_instruction=ARTIFACT_INSTRUCTION
+        )
         llm_messages = [{"role": "user", "content": req.message}]
 
     llm = get_provider(req.provider)
@@ -57,12 +68,34 @@ async def stream_chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             full_response += token
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
+        artifacts = extract_artifacts(full_response)
+        clean_text = strip_artifact_tags(full_response)
+
+        unverified = flag_unverified_citations(full_response)
+        if unverified:
+            logger.warning(f"Unverified citations detected (not in known corpus): {unverified}")
+
         assistant_msg = Message(
-            session_id=session_id, role="assistant", content=full_response,
+            session_id=session_id, role="assistant", content=clean_text,
             sources={"citations": citations, "mode": req.mode},
         )
         db.add(assistant_msg)
+        await db.flush()
+
+        for art in artifacts:
+            db.add(Artifact(
+                message_id=assistant_msg.id,
+                artifact_type=art["artifact_type"],
+                title=art["title"],
+                content=art["content"],
+            ))
         await db.commit()
+
+        if artifacts:
+            yield f"data: {json.dumps({'type': 'artifact', 'content': artifacts})}\n\n"
+
+        if unverified:
+            yield f"data: {json.dumps({'type': 'warning', 'content': f'Unverified citations detected: {unverified}'})}\n\n"
 
         yield "data: [DONE]\n\n"
 
