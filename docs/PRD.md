@@ -87,3 +87,19 @@ during the demo.
   cloud fallback is available when quality matters more than cost.
 - **Cost** — cloud provider calls are opt-in per session, not
   default, to keep the required local-demo path free to run.
+- **Ship 30 for 30 grounding limitation (confirmed via testing)** —
+  llama3.2:3b consistently defaults to generic domain knowledge for
+  longer-form generation (~1,250 words), even with explicit
+  instructions to cite specific guest content and a hard requirement
+  to reference 3+ distinct points from the transcript context. This
+  held across three prompt-engineering iterations (banning invented
+  examples, mandating guest citations). The grounded short-answer
+  path (`/api/chat` default mode) does NOT show this problem —
+  retrieval and citation work correctly there. The failure is
+  specific to the Ship 30 skill's longer output length and
+  multi-constraint instructions overwhelming a 3B parameter model.
+  Mitigation: the Anthropic cloud provider is architecturally wired
+  in via the same provider interface and should resolve this given
+  a stronger model — not verified end-to-end in this submission due
+  to no Anthropic API key being available during development, but
+  the provider toggle and prompt are ready to use with one.
